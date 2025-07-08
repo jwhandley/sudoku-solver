@@ -200,38 +200,29 @@ impl Sudoku {
         for r in 0..9usize {
             for c in 0..9 {
                 let idx = r * 9 + c;
-                match &self.cells[idx] {
-                    Cell::Solved(_) => {
-                        continue;
-                    }
-                    Cell::Uncertain(possible) => {
-                        if count_bits(*possible) < count {
-                            count = count_bits(*possible);
-                            best_idx = Some((r, c));
-                        }
-                    }
+                if let Cell::Uncertain(possible) = &self.cells[idx]
+                    && count_bits(*possible) < count
+                {
+                    count = count_bits(*possible);
+                    best_idx = Some((r, c));
                 }
             }
         }
 
-        match best_idx {
-            Some((r, c)) => {
-                let idx = r * 9 + c;
-                if let Cell::Uncertain(possible) = &self.cells[idx] {
-                    possible_values(*possible).find_map(|p| {
-                        let mut next = *self;
+        if let Some((r, c)) = best_idx
+            && let Cell::Uncertain(possible) = &self.cells[r * 9 + c]
+        {
+            possible_values(*possible).find_map(|p| {
+                let mut next = *self;
 
-                        if !next.set(r, c, p) {
-                            return None;
-                        }
-
-                        next.solve()
-                    })
-                } else {
-                    None
+                if !next.set(r, c, p) {
+                    return None;
                 }
-            }
-            _ => Some(*self),
+
+                next.solve()
+            })
+        } else {
+            Some(*self)
         }
     }
 }
