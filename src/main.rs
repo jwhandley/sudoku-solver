@@ -1,7 +1,9 @@
 use core::array;
 use std::collections::HashSet;
 use std::sync::LazyLock;
-use std::time::Instant;
+use std::time::Duration;
+
+use indicatif::ProgressBar;
 
 type Peers = [[[(usize, usize); 20]; 9]; 9];
 
@@ -61,7 +63,7 @@ fn count_bits(x: u16) -> u32 {
     x.count_ones()
 }
 
-fn values_from_mask(mask: u16) -> impl Iterator<Item = u32> {
+fn possible_values(mask: u16) -> impl Iterator<Item = u32> {
     (1..=9).filter(move |&v| mask & to_bit(v) != 0)
 }
 
@@ -221,7 +223,7 @@ impl Sudoku {
             Some((r, c)) => {
                 let idx = r * 9 + c;
                 if let Cell::Uncertain(possible) = &self.cells[idx] {
-                    values_from_mask(*possible).find_map(|p| {
+                    possible_values(*possible).find_map(|p| {
                         let mut next = *self;
 
                         if !next.set(r, c, p) {
@@ -258,14 +260,26 @@ impl std::fmt::Display for Sudoku {
 }
 
 fn main() {
-    let _easy =
-        "53..7.... 6..195... .98....6. 8...6...3 4..8.3..1 7...2...6 .6....28. ...419..5 ....8..79";
-    let hard = "4.....8.5.3..........7......2.....6.....8.4......1.......6.3.7.5..2.....1.4......";
+    let args: Vec<String> = std::env::args().collect();
 
-    let start = Instant::now();
-    let sudoku = Sudoku::parse(hard);
+    if args.len() < 2 {
+        eprintln!("Usage: ./sudoku-solver ./path-to-puzzles.txt");
+    }
 
-    let solution = sudoku.solve().unwrap();
-    assert!(solution.is_valid());
-    println!("Done in {:?}", start.elapsed());
+    let mut times = Vec::new();
+    let input = std::fs::read_to_string(&args[1]).unwrap();
+    let puzzles: Vec<_> = input.lines().collect();
+    let pb: ProgressBar = ProgressBar::new(puzzles.len() as u64);
+    for puzzle in puzzles.iter() {
+        let start = std::time::Instant::now();
+        let sudoku = Sudoku::parse(puzzle);
+        let solution = sudoku.solve().unwrap();
+        assert!(solution.is_valid());
+        times.push(start.elapsed());
+        pb.inc(1);
+    }
+
+    let total = times.iter().sum::<Duration>();
+    pb.finish();
+    println!("Average solve time: {:?}", total / times.len() as u32);
 }
