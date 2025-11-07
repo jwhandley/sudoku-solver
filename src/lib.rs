@@ -57,13 +57,15 @@ impl Sudoku {
     pub fn parse(input: &str) -> Self {
         let mut result = Self::default();
 
-        let input: Vec<char> = input.chars().filter(|c| !c.is_whitespace()).collect();
-
-        for i in 0..81usize {
-            if let Some(value) = input[i].to_digit(10) {
-                result.fill(i, value);
-            }
-        }
+        input
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .enumerate()
+            .for_each(|(i, c)| {
+                if let Some(value) = c.to_digit(10) {
+                    result.fill(i, value);
+                }
+            });
 
         result
     }
@@ -134,7 +136,7 @@ impl Sudoku {
 
         if let Some(i) = best_idx {
             for p in self.cells[i].possible_values() {
-                let mut next = self.clone();
+                let mut next = *self;
 
                 if !next.fill(i, p) {
                     continue;
@@ -147,7 +149,7 @@ impl Sudoku {
 
             None
         } else {
-            Some(self.clone())
+            Some(*self)
         }
     }
 

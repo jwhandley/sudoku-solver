@@ -3,8 +3,8 @@ use std::{array, sync::LazyLock};
 type Peers = [[usize; 20]; 81];
 type Units = [[usize; 27]; 81];
 
-pub static PEERS: LazyLock<Peers> = LazyLock::new(|| array::from_fn(|idx| get_peers(idx)));
-pub static UNITS: LazyLock<Units> = LazyLock::new(|| array::from_fn(|idx| get_units(idx)));
+pub static PEERS: LazyLock<Peers> = LazyLock::new(|| array::from_fn(get_peers));
+pub static UNITS: LazyLock<Units> = LazyLock::new(|| array::from_fn(get_units));
 
 fn get_peers(idx: usize) -> [usize; 20] {
     let row = idx / 9;

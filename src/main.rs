@@ -21,5 +21,5 @@ fn main() {
     });
 
     let total = now.elapsed();
-    println!("Total solve time: {:?}", total);
+    println!("Total solve time: {total:?}");
 }
