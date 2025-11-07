@@ -1,6 +1,5 @@
 use indicatif::ParallelProgressIterator;
 use rayon::prelude::*;
-use std::time::Duration;
 use sudoku_solver::Sudoku;
 
 fn main() {
@@ -13,20 +12,14 @@ fn main() {
     let input = std::fs::read_to_string(&args[1]).unwrap();
     let puzzles: Vec<&str> = input.lines().collect();
 
-    let times: Vec<_> = puzzles
-        .into_par_iter()
-        .progress()
-        .map(|puzzle| {
-            let start = std::time::Instant::now();
+    let now = std::time::Instant::now();
+    puzzles.into_par_iter().progress().for_each(|puzzle| {
+        let sudoku = Sudoku::parse(puzzle);
+        let solution = sudoku.solve();
 
-            let sudoku = Sudoku::parse(puzzle);
-            let solution = sudoku.solve().unwrap();
-            assert!(solution.is_valid());
+        assert!(solution.unwrap().is_valid());
+    });
 
-            start.elapsed()
-        })
-        .collect();
-
-    let total = times.iter().sum::<Duration>();
-    println!("Average solve time: {:?}", total / times.len() as u32);
+    let total = now.elapsed();
+    println!("Total solve time: {:?}", total);
 }

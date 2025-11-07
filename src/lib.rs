@@ -1,94 +1,47 @@
-use std::{array, collections::HashSet, sync::LazyLock};
+use std::collections::HashSet;
+mod peers;
 
-type Peers = [[[(usize, usize); 20]; 9]; 9];
-
-pub static PEERS: LazyLock<Peers> =
-    LazyLock::new(|| array::from_fn(|row| array::from_fn(|col| get_peers(row, col))));
-
-fn get_peers(row: usize, col: usize) -> [(usize, usize); 20] {
-    let mut peers = [(0, 0); 20];
-    let mut i = 0;
-
-    // First 8
-    for r in 0..9 {
-        if r != row {
-            peers[i] = (r, col);
-            i += 1;
-        }
-    }
-
-    // Second 8
-    for c in 0..9 {
-        if c != col {
-            peers[i] = (row, c);
-            i += 1;
-        }
-    }
-
-    // Remaining four
-    let box_r = (row / 3) * 3;
-    let box_c = (col / 3) * 3;
-
-    for dr in 0..3 {
-        for dc in 0..3 {
-            let r = box_r + dr;
-            let c = box_c + dc;
-
-            if r != row && c != col {
-                peers[i] = (r, c);
-                i += 1;
-            }
-        }
-    }
-
-    assert!(i == 20);
-    peers
-}
-
-#[derive(Clone, Copy)]
-enum Cell {
-    Solved(u32),
-    Uncertain(u16),
-}
-
-fn to_bit(v: u32) -> u16 {
-    1 << (v - 1)
-}
-fn count_bits(x: u16) -> u32 {
-    x.count_ones()
-}
-
-fn possible_values(mask: u16) -> impl Iterator<Item = u32> {
-    (1..=9).filter(move |&v| mask & to_bit(v) != 0)
+#[derive(Clone, Copy, Debug)]
+struct Cell {
+    possible: u16,
 }
 
 impl Cell {
     fn remove(&mut self, value: u32) -> bool {
-        match self {
-            Cell::Solved(v) => *v != value,
-            Cell::Uncertain(bits) => {
-                *bits &= !to_bit(value);
-                *bits != 0
-            }
+        self.possible &= !(1 << (value - 1));
+        self.possible != 0
+    }
+
+    fn is_solved(&self) -> Option<u32> {
+        if self.count() == 1 {
+            Some(self.possible.trailing_zeros() + 1)
+        } else {
+            None
         }
     }
 
-    fn one_left(&self) -> Option<u32> {
-        match self {
-            Cell::Solved(_) => None,
-            Cell::Uncertain(bits) if bits.count_ones() == 1 => Some(bits.trailing_zeros() + 1),
-            _ => None,
-        }
+    fn count(&self) -> usize {
+        self.possible.count_ones() as usize
+    }
+
+    fn possible_values(&self) -> impl Iterator<Item = u32> {
+        (1..=9).filter(move |&v| self.possible & (1 << (v - 1)) != 0)
+    }
+
+    fn contains(&self, value: u32) -> bool {
+        self.possible & (1 << (value - 1)) != 0
     }
 }
 
 impl Default for Cell {
     fn default() -> Self {
-        Self::Uncertain(0b111111111)
+        Self {
+            possible: 0b111_111_111,
+        }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct Sudoku {
     cells: [Cell; 81],
 }
@@ -106,12 +59,9 @@ impl Sudoku {
 
         let input: Vec<char> = input.chars().filter(|c| !c.is_whitespace()).collect();
 
-        for r in 0..9usize {
-            for c in 0..9 {
-                let idx = r * 9 + c;
-                if let Some(value) = input[idx].to_digit(10) {
-                    result.set(r, c, value);
-                }
+        for i in 0..81usize {
+            if let Some(value) = input[i].to_digit(10) {
+                result.fill(i, value);
             }
         }
 
@@ -125,7 +75,7 @@ impl Sudoku {
             seen.clear();
 
             for c in 0..9 {
-                if let Cell::Solved(v) = self.cells[r * 9 + c] {
+                if let Some(v) = self.cells[r * 9 + c].is_solved() {
                     if !seen.insert(v) {
                         return false;
                     }
@@ -139,7 +89,7 @@ impl Sudoku {
             seen.clear();
 
             for r in 0..9 {
-                if let Cell::Solved(v) = self.cells[r * 9 + c] {
+                if let Some(v) = self.cells[r * 9 + c].is_solved() {
                     if !seen.insert(v) {
                         return false;
                     }
@@ -158,7 +108,7 @@ impl Sudoku {
                 for dr in 0..3 {
                     for dc in 0..3 {
                         let idx = (box_r + dr) * 9 + (box_c + dc);
-                        if let Cell::Solved(v) = self.cells[idx] {
+                        if let Some(v) = self.cells[idx].is_solved() {
                             if !seen.insert(v) {
                                 return false;
                             }
@@ -173,57 +123,101 @@ impl Sudoku {
         true
     }
 
-    fn set(&mut self, row: usize, col: usize, value: u32) -> bool {
-        let idx = row * 9 + col;
-        self.cells[idx] = Cell::Solved(value);
+    pub fn solve(&self) -> Option<Self> {
+        let best_idx = self
+            .cells
+            .iter()
+            .enumerate()
+            .filter(|(_, cell)| cell.count() > 1)
+            .min_by_key(|(_, cell)| cell.count())
+            .map(|(i, _)| i);
 
-        for (nr, nc) in PEERS[row][col].iter() {
-            let nbr = nr * 9 + nc;
-            if !self.cells[nbr].remove(value) {
-                return false;
+        if let Some(i) = best_idx {
+            for p in self.cells[i].possible_values() {
+                let mut next = self.clone();
+
+                if !next.fill(i, p) {
+                    continue;
+                }
+
+                if let Some(s) = next.solve() {
+                    return Some(s);
+                }
             }
 
-            if let Some(v) = self.cells[nbr].one_left() {
-                if !self.set(*nr, *nc, v) {
-                    return false;
-                }
+            None
+        } else {
+            Some(self.clone())
+        }
+    }
+
+    fn fill(&mut self, i: usize, value: u32) -> bool {
+        for n in 1..=9 {
+            if n == value {
+                continue;
+            }
+
+            if !self.eliminate(i, n) {
+                return false;
             }
         }
 
         true
     }
 
-    pub fn solve(&self) -> Option<Self> {
-        let mut count = u32::MAX;
-        let mut best_idx = None;
+    fn eliminate(&mut self, i: usize, value: u32) -> bool {
+        if !self.cells[i].contains(value) {
+            return true;
+        }
 
-        for r in 0..9usize {
-            for c in 0..9 {
-                let idx = r * 9 + c;
-                if let Cell::Uncertain(possible) = &self.cells[idx]
-                    && count_bits(*possible) < count
-                {
-                    count = count_bits(*possible);
-                    best_idx = Some((r, c));
+        self.cells[i].remove(value);
+        if self.cells[i].count() == 0 {
+            return false;
+        }
+
+        if let Some(v) = self.cells[i].is_solved() {
+            for j in peers::PEERS[i] {
+                if !self.eliminate(j, v) {
+                    return false;
                 }
             }
         }
 
-        if let Some((r, c)) = best_idx
-            && let Cell::Uncertain(possible) = &self.cells[r * 9 + c]
-        {
-            possible_values(*possible).find_map(|p| {
-                let mut next = *self;
-
-                if !next.set(r, c, p) {
-                    return None;
-                }
-
-                next.solve()
-            })
-        } else {
-            Some(*self)
+        if !self.handle_neighbors(&peers::UNITS[i][..9], value) {
+            return false;
         }
+
+        if !self.handle_neighbors(&peers::UNITS[i][9..18], value) {
+            return false;
+        }
+
+        if !self.handle_neighbors(&peers::UNITS[i][18..], value) {
+            return false;
+        }
+
+        true
+    }
+
+    fn handle_neighbors(&mut self, nbr: &[usize], value: u32) -> bool {
+        let mut count = 0;
+        let mut found = usize::MAX;
+
+        for &i in nbr {
+            if self.cells[i].contains(value) {
+                count += 1;
+                found = i;
+            }
+        }
+
+        if count == 0 {
+            return false;
+        }
+
+        if count == 1 && !self.fill(found, value) {
+            return false;
+        }
+
+        true
     }
 }
 
@@ -232,9 +226,9 @@ impl std::fmt::Display for Sudoku {
         for r in 0..9usize {
             for c in 0..9 {
                 let idx = r * 9 + c;
-                match self.cells[idx] {
-                    Cell::Solved(v) => write!(f, "{v}")?,
-                    Cell::Uncertain(_) => write!(f, ".")?,
+                match self.cells[idx].is_solved() {
+                    Some(v) => v.fmt(f)?,
+                    None => write!(f, ".")?,
                 }
             }
 
